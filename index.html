@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineSuggest | Movie Recommendations</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Dark background */
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+        /* Fade-in animation for modal */
+        .modal-fade-enter {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        .modal-fade-enter-active {
+            opacity: 1;
+            transform: scale(1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .modal-fade-leave-active {
+            opacity: 0;
+            transform: scale(0.95);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .movie-card:hover .movie-info {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="text-white">
+
+    <!-- Header -->
+    <header class="bg-gray-900/80 backdrop-blur-sm sticky top-0 z-40 shadow-lg">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
+                <div class="flex items-center">
+                    <svg class="h-8 w-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+                    </svg>
+                    <h1 class="ml-3 text-2xl font-bold tracking-tighter">CineSuggest</h1>
+                </div>
+                <div class="w-full max-w-xs">
+                    <div class="relative">
+                        <input id="search-input" type="text" placeholder="Search for a movie..." class="w-full bg-gray-800 text-white rounded-full py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-red-500 transition">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="main-content" class="container mx-auto px-4 sm:px-6 lg:px-8 py-10">
+         <div id="status-message" class="text-center"></div>
+        <div id="movie-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+            <!-- Movie cards will be inserted here -->
+        </div>
+    </main>
+
+    <!-- Movie Details Modal -->
+    <div id="movie-details-modal" class="fixed inset-0 bg-black bg-opacity-75 backdrop-blur-sm flex items-center justify-center z-50 p-4 hidden">
+        <!-- Modal content will be inserted here -->
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- CONFIGURATION ---
+            // IMPORTANT: Replace with your own TMDb API key.
+            const API_KEY = '6fe49890d783d8d29cf807d0d3b3babc'; // <-- PASTE YOUR API KEY HERE
+            
+            const BASE_URL = 'https://api.themoviedb.org/3';
+            const IMG_URL = 'https://image.tmdb.org/t/p/w500';
+            const BACKDROP_URL = 'https://image.tmdb.org/t/p/w1280';
+            
+            // --- DOM ELEMENTS ---
+            const movieGrid = document.getElementById('movie-grid');
+            const searchInput = document.getElementById('search-input');
+            const modal = document.getElementById('movie-details-modal');
+            const statusMessage = document.getElementById('status-message');
+            const mainContent = document.getElementById('main-content');
+
+            // --- API FUNCTIONS ---
+
+            /**
+             * Fetches data from the TMDb API with error handling.
+             * @param {string} url - The API endpoint to fetch.
+             * @returns {Promise<Object|null>} The JSON response or null on error.
+             */
+            async function fetchAPI(endpoint) {
+                showLoading();
+                try {
+                    const separator = endpoint.includes('?') ? '&' : '?';
+                    const response = await fetch(`${BASE_URL}${endpoint}${separator}api_key=${API_KEY}`);
+                    if (!response.ok) {
+                        throw new Error(`API Error: ${response.statusText}`);
+                    }
+                    const data = await response.json();
+                    hideLoading();
+                    return data;
+                } catch (error) {
+                    console.error('Failed to fetch data:', error);
+                    displayError('Could not fetch movies. Please check your connection or API key.');
+                    hideLoading();
+                    return null;
+                }
+            }
+            
+            // Fetch and display popular movies on initial load
+            async function getPopularMovies() {
+                const data = await fetchAPI('/movie/popular');
+                if (data && data.results) {
+                    displayMovies(data.results);
+                }
+            }
+
+            // Fetch and display movies based on search query
+            async function searchMovies(query) {
+                if (!query) {
+                    getPopularMovies();
+                    return;
+                }
+                const data = await fetchAPI(`/search/movie?query=${query}`);
+                 if (data && data.results) {
+                    if (data.results.length === 0) {
+                        displayError(`No results found for "${query}".`);
+                    } else {
+                        displayMovies(data.results);
+                    }
+                }
+            }
+
+            // Fetch movie details and recommendations
+            async function getMovieDetails(movieId) {
+                const data = await fetchAPI(`/movie/${movieId}?append_to_response=recommendations`);
+                if (data) {
+                    showMovieDetails(data);
+                }
+            }
+
+
+            // --- DOM MANIPULATION ---
+            
+            /**
+             * Renders a list of movies into the grid.
+             * @param {Array} movies - An array of movie objects.
+             */
+            function displayMovies(movies) {
+                movieGrid.innerHTML = ''; // Clear previous results
+                statusMessage.innerHTML = '';
+                movies.forEach(movie => {
+                    if (!movie.poster_path) return; // Skip movies without a poster
+
+                    const movieCard = document.createElement('div');
+                    movieCard.className = 'movie-card bg-gray-800 rounded-lg overflow-hidden shadow-xl transform hover:scale-105 transition-transform duration-300 cursor-pointer group';
+                    
+                    movieCard.innerHTML = `
+                        <div class="relative">
+                             <img src="${IMG_URL}${movie.poster_path}" alt="${movie.title}" class="w-full h-auto object-cover" onerror="this.onerror=null;this.src='https://placehold.co/500x750/1f2937/ffffff?text=No+Image';">
+                             <div class="movie-info absolute inset-0 bg-black bg-opacity-70 flex flex-col justify-end p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                <h3 class="text-lg font-bold">${movie.title}</h3>
+                                <div class="flex items-center mt-2">
+                                    <svg class="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                                    <span class="ml-1.5 text-sm">${movie.vote_average.toFixed(1)}</span>
+                                </div>
+                             </div>
+                        </div>
+                    `;
+                    movieCard.addEventListener('click', () => getMovieDetails(movie.id));
+                    movieGrid.appendChild(movieCard);
+                });
+            }
+
+            /**
+             * Creates and displays the movie details modal.
+             * @param {Object} movie - A detailed movie object.
+             */
+            function showMovieDetails(movie) {
+                modal.innerHTML = `
+                    <div class="bg-gray-900 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative animate-modal-enter" onclick="event.stopPropagation()">
+                        <button onclick="closeModal()" class="absolute top-3 right-3 text-gray-400 hover:text-white transition z-10">
+                            <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                        <div class="relative h-64 md:h-96">
+                            <img src="${BACKDROP_URL}${movie.backdrop_path}" alt="${movie.title} backdrop" class="w-full h-full object-cover rounded-t-lg" onerror="this.style.display='none'">
+                            <div class="absolute inset-0 bg-gradient-to-t from-gray-900 to-transparent"></div>
+                        </div>
+                        <div class="p-6 md:p-8 -mt-20 relative z-10">
+                           <h2 class="text-3xl md:text-4xl font-bold">${movie.title} <span class="font-light text-gray-400">(${(new Date(movie.release_date)).getFullYear()})</span></h2>
+                           <div class="flex items-center space-x-4 mt-2 text-gray-300">
+                               <span>${movie.runtime} min</span>
+                               <span>&bull;</span>
+                               <span>${movie.genres.map(g => g.name).join(', ')}</span>
+                           </div>
+                           <p class="mt-4 text-gray-300 leading-relaxed">${movie.overview}</p>
+                           <a href="https://www.google.com/search?q=watch+${encodeURIComponent(movie.title)}" target="_blank" class="inline-block bg-red-600 hover:bg-red-700 rounded-lg px-6 py-3 font-semibold mt-6 transition">
+                            Watch Now
+                           </a>
+                        </div>
+                        <div id="recommendations" class="px-6 md:px-8 pb-8">
+                            <h3 class="text-2xl font-bold mb-4 border-l-4 border-red-500 pl-3">Recommended Movies</h3>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                <!-- Recommendation cards inserted here -->
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                const recommendationsGrid = modal.querySelector('#recommendations .grid');
+                const recommendations = movie.recommendations.results.slice(0, 4);
+                if (recommendations.length > 0) {
+                    recommendations.forEach(rec => {
+                         if (!rec.poster_path) return;
+                        const recCard = document.createElement('div');
+                        recCard.className = 'cursor-pointer group';
+                        recCard.innerHTML = `
+                            <img src="${IMG_URL}${rec.poster_path}" alt="${rec.title}" class="rounded-md transform group-hover:scale-105 transition-transform duration-300" onerror="this.onerror=null;this.src='https://placehold.co/500x750/1f2937/ffffff?text=No+Image';">
+                            <h4 class="mt-2 text-sm font-medium truncate">${rec.title}</h4>
+                        `;
+                        recCard.addEventListener('click', () => {
+                             // Scroll modal to top before loading new content
+                            modal.querySelector('.overflow-y-auto').scrollTop = 0;
+                            getMovieDetails(rec.id)
+                        });
+                        recommendationsGrid.appendChild(recCard);
+                    });
+                } else {
+                    modal.querySelector('#recommendations').innerHTML += '<p class="text-gray-400">No recommendations found.</p>';
+                }
+
+                document.body.style.overflow = 'hidden';
+                modal.classList.remove('hidden');
+                modal.classList.add('modal-fade-enter', 'modal-fade-enter-active');
+                setTimeout(() => modal.classList.remove('modal-fade-enter', 'modal-fade-enter-active'), 300);
+
+            }
+            
+            // Function to close the modal, exposed to global scope for the button's onclick
+            window.closeModal = function() {
+                modal.classList.add('modal-fade-leave-active');
+                setTimeout(() => {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('modal-fade-leave-active');
+                    document.body.style.overflow = 'auto';
+                }, 300);
+            }
+
+             // --- UTILITY FUNCTIONS ---
+            
+            function showLoading() {
+                movieGrid.innerHTML = '';
+                statusMessage.innerHTML = '<p class="text-xl">Loading movies...</p>';
+            }
+
+            function hideLoading() {
+                 statusMessage.innerHTML = '';
+            }
+
+            function displayError(message) {
+                 movieGrid.innerHTML = '';
+                 statusMessage.innerHTML = `<div class="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-center">${message}</div>`;
+            }
+
+            // --- EVENT LISTENERS ---
+            
+            // Search on input change (with debounce)
+            let debounceTimer;
+            searchInput.addEventListener('keyup', () => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    searchMovies(searchInput.value.trim());
+                }, 500); // Wait 500ms after user stops typing
+            });
+
+            // Close modal on background click
+            modal.addEventListener('click', closeModal);
+
+
+            // --- INITIALIZATION ---
+            
+            // Check for API Key and initialize
+            if (!API_KEY) {
+                mainContent.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-96 bg-gray-800 rounded-lg p-8">
+                        <h2 class="text-3xl font-bold text-red-500 mb-4">API Key Missing</h2>
+                        <p class="text-lg text-center max-w-md">
+                            To use this app, you need a free API key from The Movie Database (TMDb).
+                            <br><br>
+                            Please get your key and paste it into the <code class="bg-gray-900 px-2 py-1 rounded">API_KEY</code> variable in the script section of this HTML file.
+                        </p>
+                        <a href="https://www.themoviedb.org/signup" target="_blank" class="mt-8 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition">Get API Key</a>
+                    </div>`;
+                document.querySelector('header').style.display = 'none';
+            } else {
+                getPopularMovies();
+            }
+        });
+    </script>
+
+</body>
+</html>
